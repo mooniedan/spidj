@@ -13,9 +13,18 @@ const fmtTime = (s: number) => {
   return `${m}:${sec}`;
 };
 
+const fmtPitch = (p: number) => {
+  const sign = p >= 0 ? "+" : "";
+  return `${sign}${p.toFixed(2)}%`;
+};
+
 export function Deck({ deckId, snapshot }: Props) {
   const loaded = snapshot?.loaded_path != null;
   const playing = snapshot?.playing ?? false;
+  const cueActive = snapshot?.cue_active ?? false;
+  const duration = snapshot?.duration_seconds ?? 0;
+  const position = snapshot?.position_seconds ?? 0;
+  const cuePosition = snapshot?.cue_position_seconds ?? 0;
 
   const ringStyle: React.CSSProperties = playing
     ? {
@@ -23,6 +32,18 @@ export function Deck({ deckId, snapshot }: Props) {
           "0 0 0 1px rgba(200,48,46,0.7), 0 0 24px 4px rgba(200,48,46,0.35)",
       }
     : {};
+
+  const posPct = duration > 0 ? Math.min(100, (position / duration) * 100) : 0;
+  const cuePct = duration > 0 ? Math.min(100, (cuePosition / duration) * 100) : 0;
+
+  // On press of on-screen Cue we mimic the controller's press+release in one
+  // click. M2 controller behavior is press-and-hold for preview; the on-screen
+  // button only does press+immediate-release (no preview). M3 can add a
+  // hold-on-mousedown variant.
+  const handleScreenCue = async () => {
+    await ipc.deckCuePress(deckId);
+    await ipc.deckCueRelease(deckId);
+  };
 
   return (
     <div
@@ -33,11 +54,21 @@ export function Deck({ deckId, snapshot }: Props) {
         <div className="text-xs text-white/60 uppercase tracking-widest">
           Deck {deckId}
         </div>
-        {playing && (
-          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#c8302e] text-white">
-            LIVE
-          </span>
-        )}
+        <div className="flex gap-1">
+          {cueActive && (
+            <span
+              className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#22262c] text-white/80"
+              title="Headphone cue active"
+            >
+              🎧 CUE
+            </span>
+          )}
+          {playing && (
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#c8302e] text-white">
+              LIVE
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="min-h-[3.5rem]">
@@ -56,9 +87,28 @@ export function Deck({ deckId, snapshot }: Props) {
         )}
       </div>
 
-      <div className="font-mono text-xs text-white/60">
-        {fmtTime(snapshot?.position_seconds ?? 0)} /{" "}
-        {fmtTime(snapshot?.duration_seconds ?? 0)}
+      {/* Position bar with cue marker */}
+      <div className="relative h-1.5 bg-[#0a0a0a] rounded">
+        <div
+          className="absolute inset-y-0 left-0 bg-white/30 rounded-l"
+          style={{ width: `${posPct}%` }}
+        />
+        {loaded && (
+          <div
+            className="absolute inset-y-0 w-0.5 bg-[#c8302e]"
+            style={{ left: `${cuePct}%` }}
+            title={`Cue: ${fmtTime(cuePosition)}`}
+          />
+        )}
+      </div>
+
+      <div className="flex items-center justify-between font-mono text-xs text-white/60">
+        <span>
+          {fmtTime(position)} / {fmtTime(duration)}
+        </span>
+        <span title="Pitch fader">
+          {fmtPitch(snapshot?.pitch_percent ?? 0)}
+        </span>
       </div>
 
       <div className="flex gap-2 mt-auto">
@@ -74,9 +124,22 @@ export function Deck({ deckId, snapshot }: Props) {
         <button
           className="px-3 py-1.5 rounded bg-[#22262c] hover:bg-[#2c3036] text-sm disabled:opacity-40"
           disabled={!loaded}
-          onClick={() => ipc.deckCue(deckId)}
+          onClick={handleScreenCue}
         >
           Cue
+        </button>
+        <button
+          className={
+            "px-3 py-1.5 rounded text-sm disabled:opacity-40 " +
+            (cueActive
+              ? "bg-[#c8302e] hover:bg-[#a02220]"
+              : "bg-[#22262c] hover:bg-[#2c3036]")
+          }
+          disabled={!loaded}
+          onClick={() => ipc.deckToggleCueActive(deckId)}
+          title="Headphone cue toggle"
+        >
+          🎧
         </button>
       </div>
     </div>

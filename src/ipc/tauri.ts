@@ -1,6 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { DeckId, DeckSnapshot, MidiMessage, TrackEntry } from "../types";
+import type {
+  AppSnapshot,
+  DeckId,
+  DeckSnapshot,
+  MidiMessage,
+  TrackEntry,
+} from "../types";
 
 export const ipc = {
   libraryScan: (path: string): Promise<TrackEntry[]> =>
@@ -15,10 +21,24 @@ export const ipc = {
   deckPause: (deckId: DeckId): Promise<void> =>
     invoke("deck_pause", { deckId }),
 
-  deckCue: (deckId: DeckId): Promise<void> =>
-    invoke("deck_cue", { deckId }),
+  deckCuePress: (deckId: DeckId): Promise<void> =>
+    invoke("deck_cue_press", { deckId }),
+
+  deckCueRelease: (deckId: DeckId): Promise<void> =>
+    invoke("deck_cue_release", { deckId }),
+
+  deckToggleCueActive: (deckId: DeckId): Promise<void> =>
+    invoke("deck_toggle_cue_active", { deckId }),
+
+  deckSetPitch: (deckId: DeckId, norm: number): Promise<void> =>
+    invoke("deck_set_pitch", { deckId, norm }),
+
+  crossfaderSet: (value: number): Promise<void> =>
+    invoke("crossfader_set", { value }),
 
   deckSnapshot: (): Promise<DeckSnapshot[]> => invoke("deck_snapshot"),
+
+  appSnapshot: (): Promise<AppSnapshot> => invoke("app_snapshot"),
 
   midiListInputs: (): Promise<string[]> => invoke("midi_list_inputs"),
 
@@ -37,8 +57,8 @@ export function onMidiMessage(
   return listen<MidiMessage>("midi:message", (e) => cb(e.payload));
 }
 
-export function onDeckState(
-  cb: (snapshots: DeckSnapshot[]) => void,
+export function onAppState(
+  cb: (snap: AppSnapshot) => void,
 ): Promise<UnlistenFn> {
-  return listen<DeckSnapshot[]>("deck:state", (e) => cb(e.payload));
+  return listen<AppSnapshot>("deck:state", (e) => cb(e.payload));
 }

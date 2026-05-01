@@ -12,11 +12,14 @@ pub struct AppState {
     pub decks: Arc<Mutex<deck::DeckRack>>,
     pub midi: Arc<Mutex<midi::MidiState>>,
     pub audio: Arc<audio::AudioController>,
+    /// Crossfader position: 0.0 = full Deck A, 1.0 = full Deck B. Linear curve.
+    pub crossfader: Arc<Mutex<f32>>,
 }
 
 pub fn run() {
     let decks = Arc::new(Mutex::new(deck::DeckRack::new()));
-    let audio_ctrl = Arc::new(audio::AudioController::new(decks.clone()));
+    let crossfader = Arc::new(Mutex::new(0.5f32));
+    let audio_ctrl = Arc::new(audio::AudioController::new(decks.clone(), crossfader.clone()));
     if let Err(e) = audio_ctrl.start(None) {
         eprintln!("[audio] initial start with default device failed: {e}");
     }
@@ -26,6 +29,7 @@ pub fn run() {
         decks,
         midi,
         audio: audio_ctrl,
+        crossfader,
     };
 
     tauri::Builder::default()
@@ -36,8 +40,13 @@ pub fn run() {
             commands::deck_load,
             commands::deck_play,
             commands::deck_pause,
-            commands::deck_cue,
+            commands::deck_cue_press,
+            commands::deck_cue_release,
+            commands::deck_toggle_cue_active,
+            commands::deck_set_pitch,
+            commands::crossfader_set,
             commands::deck_snapshot,
+            commands::app_snapshot,
             commands::midi_list_inputs,
             commands::midi_connect,
             commands::audio_list_outputs,

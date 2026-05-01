@@ -1,20 +1,23 @@
 import { useEffect, useState } from "react";
 import { AudioBar } from "./components/AudioBar";
+import { Crossfader } from "./components/Crossfader";
 import { Deck } from "./components/Deck";
 import { Library } from "./components/Library";
 import { MidiBar } from "./components/MidiBar";
-import { ipc, onDeckState } from "./ipc/tauri";
-import type { DeckId, DeckSnapshot } from "./types";
+import { ipc, onAppState } from "./ipc/tauri";
+import type { AppSnapshot, DeckId } from "./types";
+
+const EMPTY_SNAPSHOT: AppSnapshot = { decks: [], crossfader: 0.5 };
 
 export default function App() {
-  const [snapshots, setSnapshots] = useState<DeckSnapshot[]>([]);
+  const [snap, setSnap] = useState<AppSnapshot>(EMPTY_SNAPSHOT);
 
   useEffect(() => {
-    ipc.deckSnapshot().then(setSnapshots).catch(() => {});
-    const unlistenPromise = onDeckState(setSnapshots);
+    ipc.appSnapshot().then(setSnap).catch(() => {});
+    const unlistenPromise = onAppState(setSnap);
     // Position polling so the time readout updates while a deck is playing.
     const tick = setInterval(() => {
-      ipc.deckSnapshot().then(setSnapshots).catch(() => {});
+      ipc.appSnapshot().then(setSnap).catch(() => {});
     }, 250);
     return () => {
       clearInterval(tick);
@@ -26,13 +29,12 @@ export default function App() {
     try {
       await ipc.deckLoad(deckId, path);
     } catch (e) {
-      // M1: surface load errors via console; UI toast is M2+.
       console.error("deck_load failed", e);
     }
   };
 
-  const deckA = snapshots.find((s) => s.id === "A") ?? null;
-  const deckB = snapshots.find((s) => s.id === "B") ?? null;
+  const deckA = snap.decks.find((s) => s.id === "A") ?? null;
+  const deckB = snap.decks.find((s) => s.id === "B") ?? null;
 
   return (
     <div className="h-full flex flex-col bg-[#0a0a0a] text-white">
@@ -42,6 +44,7 @@ export default function App() {
         <Deck deckId="A" snapshot={deckA} />
         <Deck deckId="B" snapshot={deckB} />
       </div>
+      <Crossfader value={snap.crossfader} />
       <div className="flex-1 min-h-0">
         <Library onLoad={handleLoad} />
       </div>

@@ -26,6 +26,7 @@ pub const TARGET_CHANNELS: u16 = 2;
 /// inside the spawned thread; we only keep a shutdown channel + JoinHandle.
 pub struct AudioController {
     rack: Arc<Mutex<DeckRack>>,
+    crossfader: Arc<Mutex<f32>>,
     inner: Mutex<Option<Running>>,
 }
 
@@ -35,9 +36,10 @@ struct Running {
 }
 
 impl AudioController {
-    pub fn new(rack: Arc<Mutex<DeckRack>>) -> Self {
+    pub fn new(rack: Arc<Mutex<DeckRack>>, crossfader: Arc<Mutex<f32>>) -> Self {
         Self {
             rack,
+            crossfader,
             inner: Mutex::new(None),
         }
     }
@@ -47,12 +49,13 @@ impl AudioController {
         let (sd_tx, sd_rx) = mpsc::channel::<()>();
         let (init_tx, init_rx) = mpsc::channel::<Result<()>>();
         let rack = self.rack.clone();
+        let xfader = self.crossfader.clone();
         let device_name_owned = device_name.clone();
 
         let handle = std::thread::Builder::new()
             .name("spidj-audio".into())
             .spawn(move || {
-                match build_and_play_stream(rack, device_name_owned.as_deref()) {
+                match build_and_play_stream(rack, xfader, device_name_owned.as_deref()) {
                     Ok(stream) => {
                         let _ = init_tx.send(Ok(()));
                         // Block until shutdown (or sender dropped). Stream
@@ -131,7 +134,11 @@ fn pick_device(name: Option<&str>) -> Result<Device> {
         .ok_or_else(|| anyhow!("no default output device"))
 }
 
-fn build_and_play_stream(rack: Arc<Mutex<DeckRack>>, device_name: Option<&str>) -> Result<Stream> {
+fn build_and_play_stream(
+    rack: Arc<Mutex<DeckRack>>,
+    crossfader: Arc<Mutex<f32>>,
+    device_name: Option<&str>,
+) -> Result<Stream> {
     let device = pick_device(device_name)?;
 
     let device_name = device.name().unwrap_or_else(|_| "?".into());
@@ -151,10 +158,11 @@ fn build_and_play_stream(rack: Arc<Mutex<DeckRack>>, device_name: Option<&str>) 
     let stream = match sample_format {
         SampleFormat::F32 => {
             let rack = rack.clone();
+            let xfader = crossfader.clone();
             device.build_output_stream(
                 &config,
                 move |data: &mut [f32], _| {
-                    mix_into(&rack, data, out_channels, out_rate);
+                    mix_into(&rack, &xfader, data, out_channels, out_rate);
                 },
                 err_fn,
                 None,
@@ -162,11 +170,12 @@ fn build_and_play_stream(rack: Arc<Mutex<DeckRack>>, device_name: Option<&str>) 
         }
         SampleFormat::I16 => {
             let rack = rack.clone();
+            let xfader = crossfader.clone();
             device.build_output_stream(
                 &config,
                 move |data: &mut [i16], _| {
                     let mut tmp = vec![0.0f32; data.len()];
-                    mix_into(&rack, &mut tmp, out_channels, out_rate);
+                    mix_into(&rack, &xfader, &mut tmp, out_channels, out_rate);
                     for (o, s) in data.iter_mut().zip(tmp.iter()) {
                         *o = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
                     }
@@ -177,11 +186,12 @@ fn build_and_play_stream(rack: Arc<Mutex<DeckRack>>, device_name: Option<&str>) 
         }
         SampleFormat::U16 => {
             let rack = rack.clone();
+            let xfader = crossfader.clone();
             device.build_output_stream(
                 &config,
                 move |data: &mut [u16], _| {
                     let mut tmp = vec![0.0f32; data.len()];
-                    mix_into(&rack, &mut tmp, out_channels, out_rate);
+                    mix_into(&rack, &xfader, &mut tmp, out_channels, out_rate);
                     for (o, s) in data.iter_mut().zip(tmp.iter()) {
                         let v = (s.clamp(-1.0, 1.0) * 0.5 + 0.5) * u16::MAX as f32;
                         *o = v as u16;
@@ -193,11 +203,12 @@ fn build_and_play_stream(rack: Arc<Mutex<DeckRack>>, device_name: Option<&str>) 
         }
         SampleFormat::I32 => {
             let rack = rack.clone();
+            let xfader = crossfader.clone();
             device.build_output_stream(
                 &config,
                 move |data: &mut [i32], _| {
                     let mut tmp = vec![0.0f32; data.len()];
-                    mix_into(&rack, &mut tmp, out_channels, out_rate);
+                    mix_into(&rack, &xfader, &mut tmp, out_channels, out_rate);
                     for (o, s) in data.iter_mut().zip(tmp.iter()) {
                         *o = (s.clamp(-1.0, 1.0) * i32::MAX as f32) as i32;
                     }
@@ -213,83 +224,128 @@ fn build_and_play_stream(rack: Arc<Mutex<DeckRack>>, device_name: Option<&str>) 
     Ok(stream)
 }
 
-/// Mix both decks into the output buffer. Output is interleaved.
-/// Tracks are stored as interleaved stereo @ TARGET_RATE; if the device runs
-/// at a different rate or channel count, we adjust here naively.
-fn mix_into(rack: &Mutex<DeckRack>, out: &mut [f32], out_channels: u16, out_rate: u32) {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    static FIRST_MIX_LOGGED: AtomicBool = AtomicBool::new(false);
+/// Per-deck rendering scratch we collect under the lock for one callback.
+struct DeckRender {
+    samples: Arc<Vec<f32>>,
+    in_channels: usize,
+    speed: f64,
+    start_pos: f64,
+    cue_active: bool,
+    /// Crossfader weight on master: (1-x) for A, x for B.
+    master_weight: f32,
+}
 
-    // Zero first.
+/// Mix both decks into the output buffer. Output is interleaved.
+/// Channels 0/1 carry the master mix (post-crossfader). Channels 2/3 carry the
+/// cue mix (sum of decks whose cue_active is true; no crossfader weight).
+/// Devices with only 2 channels receive master only.
+fn mix_into(
+    rack: &Mutex<DeckRack>,
+    crossfader: &Mutex<f32>,
+    out: &mut [f32],
+    out_channels: u16,
+    out_rate: u32,
+) {
     for s in out.iter_mut() {
         *s = 0.0;
     }
 
     let frames = out.len() / out_channels.max(1) as usize;
     let rate_ratio = TARGET_RATE as f64 / out_rate.max(1) as f64;
+    let oc = out_channels as usize;
+    let has_cue_pair = oc >= 4;
 
-    let rack = rack.lock();
-    for deck_mtx in &rack.decks {
-        let mut deck = deck_mtx.lock();
+    // Snapshot per-deck render data and crossfader, then release the locks
+    // before the inner sample loop so we don't hold them across thousands of
+    // sample reads. The position write-back happens at the end via the same
+    // lock pattern.
+    let xfader = (*crossfader.lock()).clamp(0.0, 1.0);
+
+    let rack_guard = rack.lock();
+    let mut renders: [Option<DeckRender>; 2] = [None, None];
+    for (idx, deck_mtx) in rack_guard.decks.iter().enumerate() {
+        let deck = deck_mtx.lock();
         if !deck.playing {
             continue;
         }
         let Some(track) = deck.track.as_ref() else {
             continue;
         };
-        if !FIRST_MIX_LOGGED.swap(true, Ordering::Relaxed) {
-            eprintln!(
-                "[audio] first mix: deck={:?} samples={} channels={} pos={}",
-                deck.id,
-                track.samples.len(),
-                track.channels,
-                deck.position_frames
-            );
-        }
-        let samples = track.samples.clone();
-        let in_channels = track.channels.max(1) as usize;
-        let speed = deck.speed as f64 * rate_ratio;
+        let master_weight = match deck.id {
+            crate::deck::DeckId::A => 1.0 - xfader,
+            crate::deck::DeckId::B => xfader,
+        };
+        renders[idx] = Some(DeckRender {
+            samples: track.samples.clone(),
+            in_channels: track.channels.max(1) as usize,
+            speed: deck.speed as f64 * rate_ratio,
+            start_pos: deck.position_frames as f64,
+            cue_active: deck.cue_active,
+            master_weight,
+        });
+    }
+    drop(rack_guard);
 
-        let mut pos = deck.position_frames as f64;
-        let total_frames = (samples.len() / in_channels) as f64;
+    // Per-deck final positions and reached-end flags, written back below.
+    let mut new_positions: [Option<u64>; 2] = [None, None];
+    let mut reached_end: [bool; 2] = [false, false];
+
+    for (idx, maybe_render) in renders.iter().enumerate() {
+        let Some(r) = maybe_render else { continue };
+        let total_frames = (r.samples.len() / r.in_channels) as f64;
+        let mut pos = r.start_pos;
+
+        // Master attenuation: 0.5 keeps the sum-of-two-decks below clip even
+        // with crossfader centred. M2 keeps the same headroom strategy.
+        let master_gain = r.master_weight * 0.5;
+        let cue_gain = if r.cue_active { 0.5 } else { 0.0 };
 
         for f in 0..frames {
             if pos >= total_frames {
-                deck.playing = false;
+                reached_end[idx] = true;
                 break;
             }
             let i = pos as usize;
-            let frame_base = i * in_channels;
-            // Stereo expected; if mono, duplicate.
-            let (l, r) = if in_channels >= 2 {
-                (samples[frame_base], samples[frame_base + 1])
+            let frame_base = i * r.in_channels;
+            let (l, r_s) = if r.in_channels >= 2 {
+                (r.samples[frame_base], r.samples[frame_base + 1])
             } else {
-                let m = samples[frame_base];
+                let m = r.samples[frame_base];
                 (m, m)
             };
 
-            let out_base = f * out_channels as usize;
-            let oc = out_channels as usize;
-            // Mix at 0.5 each so two decks at full volume don't clip; M2's
-            // crossfader replaces this constant with (1-x, x) weighting.
-            // Mirror stereo to every channel pair so multi-output devices
-            // (e.g. controllers exposing master + cue as 4 channels) get the
-            // same signal everywhere. Independent cue is M2+ work.
-            let mut ch = 0;
-            while ch + 1 < oc {
-                out[out_base + ch] += l * 0.5;
-                out[out_base + ch + 1] += r * 0.5;
-                ch += 2;
+            let out_base = f * oc;
+            // Master pair → channels 0/1.
+            if oc >= 2 {
+                out[out_base] += l * master_gain;
+                out[out_base + 1] += r_s * master_gain;
+            } else if oc == 1 {
+                out[out_base] += (l + r_s) * 0.5 * master_gain;
             }
-            // Odd-count tail: write mono.
-            if ch < oc {
-                out[out_base + ch] += (l + r) * 0.25;
+            // Cue pair → channels 2/3 if available.
+            if has_cue_pair && cue_gain > 0.0 {
+                out[out_base + 2] += l * cue_gain;
+                out[out_base + 3] += r_s * cue_gain;
             }
 
-            pos += speed;
+            pos += r.speed;
         }
 
-        deck.position_frames = pos as u64;
+        new_positions[idx] = Some(pos as u64);
+    }
+
+    // Write positions and clear `playing` on EOF in a second short critical
+    // section.
+    let rack_guard = rack.lock();
+    for (idx, deck_mtx) in rack_guard.decks.iter().enumerate() {
+        let mut deck = deck_mtx.lock();
+        if let Some(p) = new_positions[idx] {
+            deck.position_frames = p;
+        }
+        if reached_end[idx] {
+            deck.playing = false;
+            deck.cue_held = false;
+        }
     }
 }
 

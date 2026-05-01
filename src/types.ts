@@ -19,6 +19,14 @@ export interface DeckSnapshot {
   position_seconds: number;
   duration_seconds: number;
   playing: boolean;
+  pitch_percent: number;
+  cue_position_seconds: number;
+  cue_active: boolean;
+}
+
+export interface AppSnapshot {
+  decks: DeckSnapshot[];
+  crossfader: number;
 }
 
 export interface MidiMessage {

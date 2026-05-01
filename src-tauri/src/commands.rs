@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::audio::{self, TARGET_RATE};
-use crate::deck::{DeckId, DeckSnapshot};
+use crate::deck::{AppSnapshot, DeckId, DeckSnapshot};
 use crate::library::{self, TrackEntry};
 use crate::midi;
 use crate::AppState;
@@ -25,7 +25,7 @@ pub fn deck_load(
         let rack = state.decks.lock();
         rack.deck(id).lock().load(track);
     }
-    emit_deck_state(&state, &app);
+    emit_app_state(&state, &app);
     Ok(())
 }
 
@@ -48,7 +48,7 @@ pub fn deck_play(
             deck.track.is_some()
         );
     }
-    emit_deck_state(&state, &app);
+    emit_app_state(&state, &app);
     Ok(())
 }
 
@@ -60,25 +60,77 @@ pub fn deck_pause(
 ) -> Result<(), String> {
     let id = DeckId::from_str_loose(&deck_id).ok_or_else(|| "bad deck id".to_string())?;
     state.decks.lock().deck(id).lock().pause();
-    emit_deck_state(&state, &app);
+    emit_app_state(&state, &app);
     Ok(())
 }
 
 #[tauri::command]
-pub fn deck_cue(
+pub fn deck_cue_press(
     state: State<'_, AppState>,
     app: AppHandle,
     deck_id: String,
 ) -> Result<(), String> {
     let id = DeckId::from_str_loose(&deck_id).ok_or_else(|| "bad deck id".to_string())?;
-    state.decks.lock().deck(id).lock().cue();
-    emit_deck_state(&state, &app);
+    state.decks.lock().deck(id).lock().cue_press();
+    emit_app_state(&state, &app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn deck_cue_release(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    deck_id: String,
+) -> Result<(), String> {
+    let id = DeckId::from_str_loose(&deck_id).ok_or_else(|| "bad deck id".to_string())?;
+    state.decks.lock().deck(id).lock().cue_release();
+    emit_app_state(&state, &app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn deck_toggle_cue_active(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    deck_id: String,
+) -> Result<(), String> {
+    let id = DeckId::from_str_loose(&deck_id).ok_or_else(|| "bad deck id".to_string())?;
+    state.decks.lock().deck(id).lock().toggle_cue_active();
+    emit_app_state(&state, &app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn deck_set_pitch(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    deck_id: String,
+    norm: f32,
+) -> Result<(), String> {
+    let id = DeckId::from_str_loose(&deck_id).ok_or_else(|| "bad deck id".to_string())?;
+    state.decks.lock().deck(id).lock().set_pitch(norm);
+    emit_app_state(&state, &app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn crossfader_set(state: State<'_, AppState>, app: AppHandle, value: f32) -> Result<(), String> {
+    *state.crossfader.lock() = value.clamp(0.0, 1.0);
+    emit_app_state(&state, &app);
     Ok(())
 }
 
 #[tauri::command]
 pub fn deck_snapshot(state: State<'_, AppState>) -> Vec<DeckSnapshot> {
-    snapshot_now(&state)
+    snapshot_decks(&state)
+}
+
+#[tauri::command]
+pub fn app_snapshot(state: State<'_, AppState>) -> AppSnapshot {
+    AppSnapshot {
+        decks: snapshot_decks(&state),
+        crossfader: *state.crossfader.lock(),
+    }
 }
 
 #[tauri::command]
@@ -88,7 +140,12 @@ pub fn midi_list_inputs() -> Result<Vec<String>, String> {
 
 #[tauri::command]
 pub fn midi_connect(state: State<'_, AppState>, port_index: usize) -> Result<(), String> {
-    midi::connect(&state.midi, state.decks.clone(), port_index)
+    midi::connect(
+        &state.midi,
+        state.decks.clone(),
+        state.crossfader.clone(),
+        port_index,
+    )
 }
 
 #[tauri::command]
@@ -102,7 +159,7 @@ pub fn audio_set_output(state: State<'_, AppState>, name: String) -> Result<(), 
     state.audio.start(dev).map_err(|e| e.to_string())
 }
 
-fn snapshot_now(state: &State<'_, AppState>) -> Vec<DeckSnapshot> {
+fn snapshot_decks(state: &State<'_, AppState>) -> Vec<DeckSnapshot> {
     let rack = state.decks.lock();
     rack.decks
         .iter()
@@ -110,7 +167,10 @@ fn snapshot_now(state: &State<'_, AppState>) -> Vec<DeckSnapshot> {
         .collect()
 }
 
-fn emit_deck_state(state: &State<'_, AppState>, app: &AppHandle) {
-    let snaps = snapshot_now(state);
-    let _ = app.emit("deck:state", snaps);
+fn emit_app_state(state: &State<'_, AppState>, app: &AppHandle) {
+    let payload = AppSnapshot {
+        decks: snapshot_decks(state),
+        crossfader: *state.crossfader.lock(),
+    };
+    let _ = app.emit("deck:state", payload);
 }
