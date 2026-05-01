@@ -1,0 +1,34 @@
+[package]
+name = "spidj"
+version = "0.0.1"
+description = "DJ Graph View desktop app"
+authors = ["spidj"]
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "spidj_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+thiserror = "1"
+parking_lot = "0.12"
+walkdir = "2"
+
+# MIDI input
+midir = "0.10"
+
+# Audio output + decoding
+cpal = "0.15"
+symphonia = { version = "0.5", features = ["mp3", "wav", "flac", "aac", "isomp4"] }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

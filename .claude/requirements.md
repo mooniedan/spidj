@@ -34,7 +34,9 @@ The prototype is a success if a DJ can, against mock data:
 
 ### 1.4 Output format
 
-A single React artifact suitable for rendering in Claude.ai's artifact pane. The artifact is **interactive against mock data** — drag, drop, click, hover, configuration changes all functional. It is **not** a real DJ application: no audio, no real metadata extraction, no persistence.
+> **Updated 2026-05-01:** the original spec targeted a single React artifact for Claude.ai with mock-only decks. The project has pivoted to a **native Tauri desktop app** (Rust backend + React/TS frontend) with **real audio output** driven by a real MIDI controller (Numark Mixtrack Platinum). The clauses below have been amended to reflect this. See `.claude/poc.md` for the controller-feasibility spike that informed the stack and `.claude/plans/` for the implementation plan.
+
+A Tauri desktop application running on Windows. The frontend is the Graph View UI; the backend produces real audio through the system audio device and accepts MIDI input from a connected DJ controller. Drag, drop, click, hover, configuration changes, **and transport controls** are functional. Mock data is still acceptable for fields that have no source yet (BPM, key, energy) until analysis is wired up.
 
 ---
 
@@ -42,16 +44,16 @@ A single React artifact suitable for rendering in Claude.ai's artifact pane. The
 
 Explicit non-goals so Claude Code does not over-build:
 
-- **No audio playback.** Decks are visual emulations only.
-- **No real BPM, key, or metadata detection.** Mock data carries pre-populated metadata.
-- **No real transport controls.** Play/pause/cue/sync buttons render but do not function.
-- **No EQ/effects logic.** EQ knobs render but do not filter audio (there is no audio).
+- ~~**No audio playback.** Decks are visual emulations only.~~ **Retired 2026-05-01.** Real audio playback via `cpal`/`symphonia` is now a goal.
+- **No real BPM, key, or metadata detection.** Mock or hash-stable random values are acceptable for prototype phases. Real analysis (e.g. via `aubio`) is post-MVP.
+- ~~**No real transport controls.** Play/pause/cue/sync buttons render but do not function.~~ **Retired 2026-05-01.** Play/pause/cue are functional and wired to the controller. Sync is post-MVP.
+- **No EQ/effects logic.** EQ knobs render but do not filter audio. (Real EQ is post-MVP.)
 - **No working "Browse," "Crates," or "History" tabs.** These appear in the tab strip but are visibly disabled.
-- **No real library search backend.** A simple in-memory filter against mock data is sufficient; no fuzzy search, no full-text indexing.
-- **No persistence.** No `localStorage`, no API calls, no saved state. Refreshing the page resets everything.
+- **No real library search backend.** A simple in-memory filter against the scanned folder is sufficient; no fuzzy search, no full-text indexing.
+- **No browser-storage persistence.** No `localStorage`, no `sessionStorage`, no `IndexedDB`. Configuration persists via Tauri `fs` to disk JSON.
 - **No multi-user or remote features.**
 - **No mobile or touch optimisation.** Desktop pointer-driven interaction only.
-- **No accessibility audit / WCAG compliance** beyond basic semantic HTML and keyboard focus on interactive elements. (Real production work would include a full a11y pass; the prototype does not.)
+- **No accessibility audit / WCAG compliance** beyond basic semantic HTML and keyboard focus on interactive elements.
 
 ---
 
@@ -136,7 +138,7 @@ Each requirement carries an ID, a priority (`MUST` / `SHOULD` / `MAY`), and acce
 |---|---|---|
 | **REQ-DECK-01** | MUST | Two virtual decks render side by side, labelled Deck A (left) and Deck B (right). |
 | **REQ-DECK-02** | MUST | Each deck emulates a CDJ-style physical layout: circular spinning platter with album art at centre, transport controls (play/pause, cue, sync), pitch fader, three EQ knobs (high/mid/low), tempo display showing BPM and pitch %, a horizontal waveform strip across the top. |
-| **REQ-DECK-03** | MUST | Transport controls render but do not produce audio or change deck state. Hover/active visual feedback only. |
+| **REQ-DECK-03** | MUST | Transport controls (play/pause, cue) drive real audio playback through `cpal`/`symphonia` and reflect real deck state. Sync, EQ, and effects remain visual-only for now. *Amended 2026-05-01.* |
 | **REQ-DECK-04** | MUST | The live deck has a continuously spinning platter; the cued deck's platter is still. |
 | **REQ-DECK-05** | MUST | The live deck has a subtle metallic-red glow/bloom around the platter rim and displays a small "LIVE" pill. |
 | **REQ-DECK-06** | MUST | A deck whose track is currently the graph's anchor source displays a metallic-red border treatment around the deck chrome. |

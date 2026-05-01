@@ -1,0 +1,29 @@
+node_modules/
+dist/
+dist-ssr/
+coverage/
+.vite/
+
+# TypeScript incremental build cache + emitted JS from tsc -b
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+
+# Rust
+src-tauri/target/
+src-tauri/gen/
+
+# Claude Code session state
+.claude/scheduled_tasks.lock
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+Thumbs.db
