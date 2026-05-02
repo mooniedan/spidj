@@ -99,59 +99,47 @@ State of truth for transport (playing/position/cue/speed) lives in Rust. The fro
 
 ## File organisation
 
+The repo is a **Cargo + npm workspace** (since SP-0). The live-DJ app and the
+forthcoming Serato Set Planner are both apps under `apps/`; shared Rust code
+lives under `crates/`.
+
 ```
 spidj/
+├── Cargo.toml                        # workspace root (Rust)
+├── package.json                      # workspace root (npm)
+├── Cargo.lock                        # workspace lockfile
+├── package-lock.json                 # workspace lockfile
 ├── CLAUDE.md
 ├── .claude/
 │   ├── requirements.md
 │   ├── poc.md
-│   └── plans/
-│       └── *.md
-├── phases/
-│   └── PHASE-N.md
+│   └── plans/*.md
+├── phases/PHASE-N.md
 ├── prototypes/                       # historical UI explorations; reference only
-├── package.json
-├── vite.config.ts
-├── tsconfig.json
-├── tailwind.config.js
-├── index.html
-├── src/                              # React frontend
-│   ├── main.tsx
-│   ├── App.tsx
-│   ├── types.ts                      # All interfaces from requirements.md §6.1 (mirrors Rust types)
-│   ├── ipc/
-│   │   └── tauri.ts                  # typed wrappers around invoke() and listen()
-│   ├── engine/
-│   │   ├── suggestionEngine.ts       # Pure scoring function (requirements.md §6.3)
-│   │   ├── suggestionEngine.test.ts
-│   │   └── camelot.ts
-│   ├── components/
-│   │   ├── DeckRow/
-│   │   ├── MiddleBand/
-│   │   │   ├── TabStrip.tsx
-│   │   │   ├── GraphCanvas.tsx
-│   │   │   ├── QueueStrip.tsx
-│   │   │   └── SettingsModal.tsx
-│   │   ├── Library/
-│   │   ├── MidiBar.tsx
-│   │   └── DemoStateToggle.tsx
-│   ├── state/
-│   └── theme.ts
-└── src-tauri/                        # Rust backend
-    ├── Cargo.toml
-    ├── tauri.conf.json
-    ├── build.rs
-    └── src/
-        ├── main.rs
-        ├── lib.rs
-        ├── midi.rs                   # midir, port enumeration, mapping
-        ├── audio.rs                  # cpal output stream + mixer
-        ├── library.rs                # walkdir + symphonia metadata
-        ├── deck.rs                   # DeckState + transport ops
-        └── commands.rs               # #[tauri::command] handlers
+├── apps/
+│   └── spidj/                        # the live-DJ app (M1+M2+M3)
+│       ├── package.json
+│       ├── vite.config.ts
+│       ├── tsconfig.json
+│       ├── tailwind.config.js
+│       ├── index.html
+│       ├── src/                      # React frontend
+│       │   ├── main.tsx, App.tsx, types.ts
+│       │   ├── ipc/tauri.ts
+│       │   ├── engine/               # M3: pure suggestion engine + tests
+│       │   ├── components/
+│       │   └── theme.ts
+│       └── src-tauri/                # Rust backend (cpal + symphonia + midir)
+│           ├── Cargo.toml
+│           └── src/{main,lib,midi,audio,library,deck,commands}.rs
+└── crates/                           # shared Rust crates (created in SP-1+)
+    ├── spidj-engine/                 # SP-1: Rust port of M3 suggestion engine
+    └── serato-io/                    # SP-2: Serato library reader + .crate writer
 ```
 
 Folder names match the conceptual areas of `requirements.md §5`. Component names follow PascalCase; files named for the component they export.
+
+When working on the live-DJ app, `cd apps/spidj` and run the usual `npm run tauri dev`. From the workspace root, `npm run dev` and `npm run tauri` proxy to the spidj workspace.
 
 ---
 

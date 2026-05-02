@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = [
+    "apps/spidj/src-tauri",
+]
+
+# Future side-project crates land here once SP-1 / SP-2 begin:
+#   "crates/spidj-engine",
+#   "crates/serato-io",
+#
+# And the planner app once SP-3 begins:
+#   "apps/serato-planner/src-tauri",
+
+[workspace.package]
+edition = "2021"
+authors = ["spidj"]

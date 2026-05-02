@@ -10,8 +10,12 @@ vite.config.js
 vite.config.d.ts
 
 # Rust
-src-tauri/target/
-src-tauri/gen/
+target/
+**/target/
+**/gen/
+
+# SP-2 sandbox spike (not part of spidj proper)
+spike/
 
 # Claude Code session state
 .claude/scheduled_tasks.lock
