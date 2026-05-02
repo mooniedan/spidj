@@ -1,6 +1,40 @@
-## Side project: Serato Set Planner (planned, not built)
+## Side project: Serato Set Planner
 
-> **Status:** plan only. The user wants this written up now and built later, between M2 (just shipped) and M3.
+> **Status:** SP-2 spike succeeded 2026-05-02. Format work confirmed end-to-end against the user's real Serato library (77 tracks, `database V2`, `DJ Music.crate`). Proceeding into the proper build starting with SP-0.
+
+### Spike findings (2026-05-02)
+
+A throwaway crate at `spike/` (gitignored, hand-rolled parser, no `triseratops` dep) read 77 tracks from `database V2` and wrote a 5-track `spidj-spike-test.crate` that Serato loaded on next launch with all tracks intact.
+
+Confirmed empirically:
+
+- **Record format**: `[4-byte ASCII tag][4-byte u32 BE length][payload]` — exactly as the reverse-engineered docs say. No padding, no envelope.
+- **Required records for a loadable crate**: `vrsn` (with payload `"1.0/Serato ScratchLive Crate"` UTF-16 BE) + N × `otrk` records, each containing one nested `ptrk` with the path. That's it.
+- **Optional records Serato adds itself**: `osrt` (sort spec) + `ovct` (column visibility/width) — these are UI display state. Serato adds them when the crate is opened, sorted, or column-resized. We do NOT need to write them.
+- **Path encoding** (matches what's in `database V2`):
+  - UTF-16 BE.
+  - Forward slashes, e.g. `Users/mooni/Music/DJ Music/Afro Beats/2Baba - Coded Tinz.mp3`.
+  - **No drive letter, no leading slash.**
+  - Non-ASCII characters work directly (Beyoncé's `é` round-tripped without issue).
+- **Crate name** is purely the filename minus `.crate`; not encoded inside the file.
+- **Display vs storage order**: Serato shows tracks sorted by whatever column the user has selected, but the original write order is preserved in the `#` column.
+- **No DB write needed**: dropping a fresh `.crate` into `Subcrates/` is sufficient; Serato picks it up on next launch. The `database V2` is read-only as far as we're concerned.
+- **`triseratops` not strictly required** for this minimal scope. Hand-rolled parser+writer is ~100 lines and avoids an external dep that's still maturing. Re-evaluate if we need richer metadata access later (e.g. reading Serato cue points / beatgrids for downstream features).
+
+### Risks resolved by the spike
+
+- ~~Will Serato accept a hand-written `.crate`?~~ Yes.
+- ~~Path encoding pitfalls?~~ No surprises; UTF-16 BE forward-slash matches database paths.
+- ~~Need `osrt`/`ovct` for the crate to load?~~ No.
+- ~~`triseratops` API churn risk?~~ Avoided by not depending on it.
+
+### Risks still open (cover in SP-2)
+
+- Overwriting an existing `.crate`: refuse + UI rename prompt per the plan.
+- Crate names with filesystem-illegal chars (`/ \ : * ? " < > |`): sanitize before writing.
+- Editing pre-existing crates: still out of scope; never modify what Serato wrote.
+- Concurrent Serato + spidj writes: Serato writes its own `.crate` files when the user re-saves a crate inside Serato. Detect a running Serato and warn before writing.
+- Very long paths (Windows MAX_PATH 260 chars): test once SP-3 is wired.
 
 ### Context
 
@@ -69,7 +103,7 @@ The refactor is its own commit — no behavior change, just reorganisation. The 
 
 - **Reading the library**:
   - Resolve default `_Serato_/` location: `%USERPROFILE%\Music\_Serato_\` on Windows; `~/Music/_Serato_/` on Mac. Allow override via picker.
-  - Use `triseratops` (Holzhaus) to parse `database V2`. Pin to a specific commit since the API is still evolving.
+  - Parse `database V2` directly. Format is the same `[4-byte tag][4-byte BE length][payload]` records used by `.crate` files (confirmed by the SP spike on 2026-05-02). Track records are `otrk`; the path lives in a nested `pfil` sub-record (UTF-16 BE). No `triseratops` dep needed for the basic library read; reconsider if richer Serato metadata (cue points, beatgrids) becomes interesting later.
   - Project Serato's record into `spidj_engine::Track`. Mappings:
     - title, artist, BPM, key — directly available.
     - genre — from Serato's "genre" tag; fallback to ID3 if missing.
@@ -141,7 +175,7 @@ The library is loaded once into Rust state at `library_open` time; subsequent co
 
 ### Risks
 
-- **`triseratops` API churn** — pin to a specific git rev. If breaking changes happen later, port to a fork or write our own parser; the format is documented enough to replace.
+- ~~**`triseratops` API churn**~~ — resolved: spike used a hand-rolled parser; we don't depend on `triseratops` at all.
 - **`.crate` writer edge cases** — paths with non-ASCII, very long names, special chars. Test against a few real-world Serato libraries.
 - **Big libraries** (50k+ tracks) — read-once into memory should be fine (a few hundred MB at most). If it isn't, add lazy loading.
 - **User confusion if a `.crate` doesn't appear in Serato** — likely cause: Serato was running when we wrote. Detect a running Serato process and warn.
@@ -159,3 +193,4 @@ The library is loaded once into Rust state at `library_open` time; subsequent co
 The user said "we'll address this separately" — so this section is a holding pattern. When we restart, the natural sequence is SP-0 → SP-1 → SP-2 → SP-3 → SP-4 with a phase doc per step (`phases/PHASE-SP-N.md`).
 
 ---
+
