@@ -83,21 +83,35 @@ The refactor is its own commit — no behavior change, just reorganisation. The 
 
 #### SP-1 — Engine crate (`crates/spidj-engine`)
 
-- Port `prototypes/data.jsx::scoreTrack` + `getSuggestions` to Rust.
-  - Pure functions; no I/O.
-  - Public API:
-    ```rust
-    pub struct Track { pub id, pub title, pub artist, pub bpm,
-                       pub key, pub genre, pub tags, pub year, pub energy }
-    pub struct Settings { pub criteria_enabled, pub strictness,
-                          pub bpm_tol_down_pct, pub bpm_tol_up_pct }
-    pub struct Suggestion { pub track: Track, pub score: f32,
-                            pub reasons: Vec<Reason> }
-    pub fn suggest(anchor: &Track, library: &[Track],
-                   settings: &Settings) -> Vec<Suggestion>
-    ```
-- Note in code header: `prototypes/data.jsx` uses fixed-point scoring (BPM = 4 pts, Key = 5 pts, …); `requirements.md §6.3` specifies normalised 0–1 mean. Port the prototype's behavior verbatim for now; reconcile with §6.3 in spidj M3 (separate decision).
-- `cargo test`-only verification (no UI, no integration tests).
+Port the **M3 TypeScript engine** (`apps/spidj/src/engine/*.ts`) to Rust. M3 already settled on `requirements.md §6.3` (normalised 0–1 per criterion + mean aggregation) over the prototype's heuristic point-scoring, so the Rust port matches the TS implementation 1:1.
+
+- Pure functions; no I/O. `serde` derive on the public types so SP-3 can wire them through Tauri commands without translation layers.
+- Public API mirrors TS shape:
+  ```rust
+  pub struct Track {
+      pub id: String, pub title: String, pub artist: String,
+      pub bpm: f32, pub key: Option<String>, pub genre: String,
+      pub tags: Vec<String>, pub year: i32, pub energy: u8,
+      pub album_art_color: String, pub duration: Option<f64>,
+  }
+  pub struct SuggestionConfig {
+      pub enabled_criteria: EnabledCriteria,
+      pub strictness: f32,                  // 0..100
+      pub bpm_slow_down_percent: f32,
+      pub bpm_speed_up_percent: f32,
+      pub suggestions_per_page: usize,
+  }
+  pub struct Suggestion { pub track: Track, pub reasons: Vec<SuggestionReason> }
+  pub struct SuggestionReason { pub r#type: CriterionKey, pub detail: String, pub strength: f32 }
+
+  pub fn suggest(
+      anchor: &Track, library: &[Track], config: &SuggestionConfig,
+      options: SuggestOptions,
+  ) -> SuggestResult;
+  ```
+- Per-criterion scorers + `strictness_threshold` exposed for testing.
+- `mock_library` module mirrors `mockLibrary.ts` (mulberry32 seed 42, "Hidden Geometry" anchor, ~40 Melodic-Techno-biased tracks). Same fixture in both languages so behaviour stays in lockstep.
+- `cargo test`-only verification: re-implement each Vitest test in Rust. The two test suites pin the same spec from both sides.
 
 #### SP-2 — Serato I/O crate (`crates/serato-io`)
 

@@ -10,6 +10,7 @@
     "dev": "npm run dev --workspace=spidj",
     "build": "npm run build --workspace=spidj",
     "test": "npm run test --workspace=spidj",
-    "test:run": "npm run test:run --workspace=spidj"
+    "test:run": "npm run test:run --workspace=spidj",
+    "planner": "npm run tauri --workspace=serato-planner -- dev"
   }
 }

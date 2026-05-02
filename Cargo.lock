@@ -2942,6 +2942,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "serato-io"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "spidj-engine",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "serato-planner"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "parking_lot",
+ "serato-io",
+ "serde",
+ "serde_json",
+ "spidj-engine",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3213,6 +3237,14 @@ dependencies = [
  "tauri-plugin-dialog",
  "thiserror 1.0.69",
  "walkdir",
+]
+
+[[package]]
+name = "spidj-engine"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -1,0 +1,11 @@
+[package]
+name = "serato-io"
+version = "0.0.1"
+edition.workspace = true
+description = "Read Serato library + write .crate files. Hand-rolled parser/writer; format verified against real libraries by the SP-2 spike."
+publish = false
+
+[dependencies]
+anyhow = "1"
+thiserror = "1"
+spidj-engine = { path = "../spidj-engine" }
