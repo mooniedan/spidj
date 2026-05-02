@@ -15,6 +15,7 @@ src-tauri/gen/
 
 # Claude Code session state
 .claude/scheduled_tasks.lock
+.claude/settings.local.json
 
 # Editors / OS
 .DS_Store
